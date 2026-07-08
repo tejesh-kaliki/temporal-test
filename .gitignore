@@ -1,0 +1,15 @@
+.env
+backend/config/env.yaml
+backend/bin/
+backend/app
+*.log
+
+# Flutter
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+/api/node_modules
+/api/openapi.yaml

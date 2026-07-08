@@ -1,0 +1,19 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY.
+# Records the answers used to generate this project so `copier update` works.
+_commit: v1.2.0
+_src_path: gh:tejesh-kaliki/kaliki-template
+app_bundle_id: com.mizustack.temporaltest
+auth: none
+caching: none
+db_name: temporal_test
+eventing: none
+go_module_path: github.com/tejesh-kaliki/temporal-test/backend
+include_example_domain: false
+include_frontend: false
+object_storage: none
+org_domain: mizustack.com
+payments: none
+project_name: Temporal Test
+project_slug: temporal-test
+push_notifications: none
+

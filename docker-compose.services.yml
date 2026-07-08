@@ -1,0 +1,28 @@
+# Dependencies only — postgres.
+#
+# Use this to run the backend on your host (go run ./cmd/server) against
+# containerized dependencies, instead of building the backend image:
+#
+#   docker compose -f docker-compose.services.yml up -d
+#   cd backend && go run ./cmd/server
+#
+# Ports map to the backend's local config defaults (config/env.yaml).
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-temporal_test}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

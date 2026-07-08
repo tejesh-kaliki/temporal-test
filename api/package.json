@@ -1,0 +1,16 @@
+{
+  "name": "temporal-test-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenAPI specs for Temporal Test (source of truth for the API contract)",
+  "scripts": {
+    "build": "npm run build:local",
+    "build:local": "node scripts/build-spec.mjs config/servers-local.yaml",
+    "lint": "redocly lint openapi.yaml",
+    "preview": "npm run build:local && redocly preview-docs openapi.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.14.5",
+    "yaml": "^2.5.0"
+  }
+}

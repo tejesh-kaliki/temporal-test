@@ -1,0 +1,40 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "sql/queries"
+    schema: "sql/schema"
+    gen:
+      go:
+        out: "internal/database"
+        package: "database"
+        sql_package: "pgx/v5"
+        # No json tags: API responses go through the oapi-codegen gen types, so
+        # the DB structs are never serialized directly (the JSON contract lives
+        # in the OpenAPI spec, not in generated DB code).
+        emit_pointers_for_null_types: true
+        emit_enum_valid_method: true
+        emit_all_enum_values: true
+        # Render the generating SQL above each method (aids the store breadcrumbs)
+        # and only switch to a params struct past 2 args (<=2 stay positional).
+        emit_sql_as_comment: true
+        query_parameter_limit: 2
+        overrides:
+          - db_type: "uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+              pointer: true
+          - db_type: "timestamptz"
+            nullable: false
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
