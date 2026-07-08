@@ -24,24 +24,11 @@ services:
       timeout: 5s
       retries: 5
 
-  # Temporal dev server: bundles server + SQLite persistence + Web UI (:8233).
-  # Zero external DB — throwaway state, perfect for local experimentation.
-  temporal:
-    image: temporalio/temporal:latest
-    entrypoint: ["temporal"]
-    # --db-filename persists all state (workflows, schedules, history) to a SQLite
-    # file on the mounted volume, so it survives container restarts. Drop the flag
-    # (and the volume) to go back to throwaway in-memory state.
-    command:
-      - "server"
-      - "start-dev"
-      - "--ip"
-      - "0.0.0.0"
-      - "--ui-port"
-      - "8233"
-    ports:
-      - "${TEMPORAL_PORT:-7233}:7233" # frontend gRPC
-      - "${TEMPORAL_UI_PORT:-8233}:8233" # Web UI
+  # Temporal moved to its own compose file — a Postgres-backed multi-service
+  # cluster (server + admin-tools + UI + worker), not the dev-mode single
+  # container this used to run. See docker-compose.temporal.yml:
+  #
+  #   docker compose -f docker-compose.temporal.yml up -d
 
   # Qdrant vector database. REST on 6333, gRPC on 6334 (we use REST).
   qdrant:

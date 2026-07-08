@@ -1,0 +1,151 @@
+# Temporal cluster, standalone: server + Postgres persistence + admin tooling +
+# Web UI, plus this repo's ingestion worker — so the whole thing runs
+# end-to-end. This mirrors the multi-service Postgres-backed topology from
+# temporalio/docker-compose (https://github.com/temporalio/docker-compose), not
+# the single-container `temporal server start-dev` dev-mode server (embedded
+# SQLite, no separate persistence/admin-tools/UI containers) that
+# docker-compose.services.yml used previously. The goal here is to observe what
+# a real cluster costs to run, and the SQLite dev-mode container's footprint
+# isn't representative of that.
+#
+# For pure local dev where cluster fidelity doesn't matter, the lightweight
+# option is temporalio/samples-server's dev-mode compose (one container, one
+# process, embedded SQLite):
+# https://github.com/temporalio/samples-server/blob/main/compose/docker-compose-dev.yml
+#
+# Bring up standalone (independent of docker-compose.yml / docker-compose.services.yml):
+#
+#   docker compose -f docker-compose.temporal.yml up -d --build
+#
+# Web UI: http://localhost:8233
+# Worker's ingest folder (drop files here to trigger the pipeline): backend/data/inbox
+# Full pipeline also needs a host Ollama serving the configured models:
+#   ollama pull nomic-embed-text
+#
+# Version pins match temporalio/docker-compose's current .env (server 1.29.1 /
+# admin-tools 1.29.1 / ui 2.34.0 / postgres 16).
+
+services:
+  temporal-postgresql:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    ports:
+      - "${TEMPORAL_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - temporal-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.29.1
+    depends_on:
+      temporal-postgresql:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgresql
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    ports:
+      - "${TEMPORAL_PORT:-7233}:7233"
+    volumes:
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig
+
+  temporal-admin-tools:
+    image: temporalio/admin-tools:1.29.1-tctl-1.18.4-cli-1.5.0
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+    stdin_open: true
+    tty: true
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080"
+
+  # Ledger Postgres for the worker's ingestion state (internal.ingested_files),
+  # separate from temporal-postgresql above (that one is the cluster's own
+  # persistence store). Kept in this file too so the stack is fully
+  # self-contained and doesn't depend on docker-compose.yml being up.
+  app-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-temporal_test}
+    ports:
+      - "${APP_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - app-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Same image/config as docker-compose.services.yml's qdrant. Separate host
+  # ports and volume name (rather than reusing that file's) so both stacks can
+  # run at the same time without a port or storage-volume collision.
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "${TEMPORAL_QDRANT_PORT:-6343}:6333"
+      - "${TEMPORAL_QDRANT_GRPC_PORT:-6344}:6334"
+    volumes:
+      - temporal-qdrantdata:/qdrant/storage
+
+  # Registers the ingest workflow/activities and runs the polling Schedule.
+  # QDRANT_URL points at the qdrant service above. OLLAMA_URL points at the
+  # host's Ollama (Ollama itself is intentionally not containerized — see
+  # docker-compose.services.yml — so it needs host GPU/memory either way).
+  # host.docker.internal works here (Docker Desktop and OrbStack both resolve
+  # it); on plain Linux/Docker Engine you'd instead add
+  # `extra_hosts: ["host.docker.internal:host-gateway"]` to this service.
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    # auto-setup registers the "default" namespace itself right after the server
+    # starts, but that finishes a couple seconds after the container is up —
+    # depends_on only waits for the container to start, not for that to finish.
+    # Restart-on-failure absorbs the race instead of a fixed sleep/healthcheck.
+    restart: on-failure
+    depends_on:
+      temporal:
+        condition: service_started
+      app-postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@app-postgres:5432/${POSTGRES_DB:-temporal_test}?sslmode=disable
+      TEMPORAL_HOSTPORT: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: ingest
+      INGEST_WATCH_DIR: /data/inbox
+      INGEST_TRIGGER: schedule
+      INGEST_POLL_INTERVAL: 30s
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_URL: http://host.docker.internal:11434
+    volumes:
+      - ./backend/data/inbox:/data/inbox
+
+volumes:
+  temporal-pgdata:
+  app-pgdata:
+  temporal-qdrantdata:
