@@ -1,0 +1,71 @@
+# FLAVOR: production-like Temporal — server + dedicated Postgres persistence +
+# admin-tools + Web UI. Mirrors the multi-service Postgres-backed topology from
+# temporalio/docker-compose (https://github.com/temporalio/docker-compose).
+# The goal is to observe what a real cluster costs to run; for pure local dev
+# where cluster fidelity doesn't matter, use docker-compose.temporal-dev.yml
+# instead. Both expose the frontend as a `temporal` service on TEMPORAL_PORT,
+# so docker-compose.yml's worker doesn't care which one is active. Combine
+# with the base file, don't run standalone:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.temporal.yml up -d --build
+#
+# Web UI: http://localhost:8233
+#
+# Version pins match temporalio/docker-compose's current .env (server 1.29.1 /
+# admin-tools 1.29.1 / ui 2.34.0 / postgres 16).
+
+services:
+  temporal-postgresql:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    ports:
+      - "${TEMPORAL_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - temporal-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.29.1
+    depends_on:
+      temporal-postgresql:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgresql
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    ports:
+      - "${TEMPORAL_PORT:-7233}:7233"
+    volumes:
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig
+
+  temporal-admin-tools:
+    image: temporalio/admin-tools:1.29.1-tctl-1.18.4-cli-1.5.0
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+    stdin_open: true
+    tty: true
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080"
+
+volumes:
+  temporal-pgdata:

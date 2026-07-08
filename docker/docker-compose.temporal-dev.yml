@@ -1,0 +1,33 @@
+# FLAVOR: lightweight Temporal — single container running
+# `temporal server start-dev` with an embedded SQLite store (no separate
+# persistence/admin-tools/UI containers). For pure local dev where cluster
+# fidelity doesn't matter; for the production-like Postgres-backed topology
+# use docker-compose.temporal.yml instead. Exposes the frontend as a
+# `temporal` service on TEMPORAL_PORT, same as the other flavor, so
+# docker-compose.yml's worker doesn't care which one is active. Combine with
+# the base file, don't run standalone:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.temporal-dev.yml up -d --build
+#
+# Web UI (bundled into the dev server, no separate container): http://localhost:8233
+#
+# Mirrors temporalio/samples-server's dev-mode compose:
+# https://github.com/temporalio/samples-server/blob/main/compose/docker-compose-dev.yml
+
+services:
+  temporal:
+    image: temporalio/temporal:1.7.2
+    entrypoint: ["temporal"]
+    command:
+      - server
+      - start-dev
+      - --ip=0.0.0.0
+      - --db-filename=/home/temporal/temporal.db
+    ports:
+      - "${TEMPORAL_PORT:-7233}:7233"
+      - "${TEMPORAL_UI_PORT:-8233}:8233"
+    volumes:
+      - temporal-dev-data:/home/temporal
+
+volumes:
+  temporal-dev-data:

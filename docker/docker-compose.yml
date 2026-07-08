@@ -1,0 +1,80 @@
+# BASE: app-level dependencies for the ingestion worker — a dedicated ledger
+# Postgres, Qdrant, and the worker itself. Combine with exactly one of the
+# Temporal flavor files, which both provide a `temporal` service on
+# TEMPORAL_HOSTPORT so the worker doesn't need to know which one is running:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.temporal.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.temporal-dev.yml up -d --build
+#
+# See README.md in this directory for the difference between the two.
+#
+# Worker's ingest folder (drop files here to trigger the pipeline): ../backend/data/inbox
+# Full pipeline also needs a host Ollama serving the configured models:
+#   ollama pull nomic-embed-text
+
+services:
+  # Ledger Postgres for the worker's ingestion state (internal.ingested_files).
+  # Separate instance from the root docker-compose.yml's backend Postgres —
+  # different port/volume so both stacks can run at the same time.
+  app-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-temporal_test}
+    ports:
+      - "${APP_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - app-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrantdata:/qdrant/storage
+
+  # Registers the ingest workflow/activities and runs the polling Schedule.
+  # QDRANT_URL points at the qdrant service above. OLLAMA_URL points at the
+  # host's Ollama (Ollama itself is intentionally not containerized, so it
+  # needs host GPU/memory either way). host.docker.internal works here
+  # (Docker Desktop and OrbStack both resolve it); on plain Linux/Docker Engine
+  # you'd instead add `extra_hosts: ["host.docker.internal:host-gateway"]`.
+  worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.worker
+    # Whichever Temporal flavor is active registers the "default" namespace
+    # itself shortly after its container starts, but depends_on only waits for
+    # the container to start, not for that to finish. Restart-on-failure
+    # absorbs the race instead of a fixed sleep/healthcheck.
+    restart: on-failure
+    depends_on:
+      temporal:
+        condition: service_started
+      app-postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@app-postgres:5432/${POSTGRES_DB:-temporal_test}?sslmode=disable
+      TEMPORAL_HOSTPORT: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: ingest
+      INGEST_WATCH_DIR: /data/inbox
+      INGEST_TRIGGER: schedule
+      INGEST_POLL_INTERVAL: 30s
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_URL: http://host.docker.internal:11434
+    volumes:
+      - ../backend/data/inbox:/data/inbox
+
+volumes:
+  app-pgdata:
+  qdrantdata:
