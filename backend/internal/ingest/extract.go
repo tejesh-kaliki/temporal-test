@@ -61,6 +61,13 @@ func Extract(content []byte) (ExtractResult, error) {
 		}
 		return ExtractResult{Text: text, Format: "docx", Supported: true}, nil
 
+	case base == "application/epub+zip":
+		text, err := extractEpub(content)
+		if err != nil {
+			return ExtractResult{}, fmt.Errorf("extract epub: %w", err)
+		}
+		return ExtractResult{Text: text, Format: "epub", Supported: true}, nil
+
 	default:
 		return ExtractResult{Format: base, Supported: false}, nil
 	}
