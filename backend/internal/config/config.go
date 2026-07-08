@@ -12,6 +12,45 @@ type Config struct {
 	Database      DatabaseConfig      `yaml:"database"`
 	Observability ObservabilityConfig `yaml:"observability"`
 	Token         TokenConfig         `yaml:"token"`
+	Temporal      TemporalConfig      `yaml:"temporal"`
+	Qdrant        QdrantConfig        `yaml:"qdrant"`
+	Ollama        OllamaConfig        `yaml:"ollama"`
+	Ingest        IngestConfig        `yaml:"ingest"`
+}
+
+// TemporalConfig points the client and worker at the Temporal frontend.
+type TemporalConfig struct {
+	// HostPort is the Temporal frontend gRPC address (e.g. "localhost:7233").
+	HostPort string `yaml:"hostport"`
+	// Namespace defaults to "default" on the dev server.
+	Namespace string `yaml:"namespace"`
+	// TaskQueue that the worker listens on and clients target.
+	TaskQueue string `yaml:"task_queue"`
+}
+
+// QdrantConfig addresses the Qdrant vector DB over its REST API.
+type QdrantConfig struct {
+	URL string `yaml:"url"`
+	// Collection holds the ingested chunk vectors.
+	Collection string `yaml:"collection"`
+}
+
+// OllamaConfig addresses a running Ollama instance and names the models used
+// for embedding (ingestion + query) and generation (the ask endpoint).
+type OllamaConfig struct {
+	URL             string `yaml:"url"`
+	EmbeddingModel  string `yaml:"embedding_model"`
+	GenerationModel string `yaml:"generation_model"`
+}
+
+// IngestConfig controls the folder-watching trigger.
+type IngestConfig struct {
+	// WatchDir is the folder scanned/watched for files to ingest.
+	WatchDir string `yaml:"watch_dir"`
+	// Trigger selects the mechanism: "schedule" | "fsnotify" | "both" | "off".
+	Trigger string `yaml:"trigger"`
+	// PollInterval is the Schedule tick (Go duration string, e.g. "30s").
+	PollInterval string `yaml:"poll_interval"`
 }
 
 // TokenConfig holds JWT signing settings (used by the auth module).
@@ -56,6 +95,25 @@ func Load(path string) (*Config, error) {
 		Server:        ServerConfig{Port: "8080"},
 		Observability: ObservabilityConfig{ServiceName: "backend"},
 		Token:         TokenConfig{ExpiryHours: 1, RefreshExpiryHours: 720},
+		Temporal: TemporalConfig{
+			HostPort:  "localhost:7233",
+			Namespace: "default",
+			TaskQueue: "ingest",
+		},
+		Qdrant: QdrantConfig{
+			URL:        "http://localhost:6333",
+			Collection: "documents",
+		},
+		Ollama: OllamaConfig{
+			URL:             "http://localhost:11434",
+			EmbeddingModel:  "nomic-embed-text",
+			GenerationModel: "llama3.2",
+		},
+		Ingest: IngestConfig{
+			WatchDir:     "./data/inbox",
+			Trigger:      "schedule",
+			PollInterval: "30s",
+		},
 	}
 
 	if b, err := os.ReadFile(path); err == nil {
@@ -68,6 +126,18 @@ func Load(path string) (*Config, error) {
 	envOverride(&cfg.Database.URL, "DATABASE_URL")
 	envOverride(&cfg.Observability.Endpoint, "OTEL_EXPORTER_OTLP_ENDPOINT")
 	envOverride(&cfg.Token.Secret, "JWT_SECRET")
+
+	envOverride(&cfg.Temporal.HostPort, "TEMPORAL_HOSTPORT")
+	envOverride(&cfg.Temporal.Namespace, "TEMPORAL_NAMESPACE")
+	envOverride(&cfg.Temporal.TaskQueue, "TEMPORAL_TASK_QUEUE")
+	envOverride(&cfg.Qdrant.URL, "QDRANT_URL")
+	envOverride(&cfg.Qdrant.Collection, "QDRANT_COLLECTION")
+	envOverride(&cfg.Ollama.URL, "OLLAMA_URL")
+	envOverride(&cfg.Ollama.EmbeddingModel, "OLLAMA_EMBEDDING_MODEL")
+	envOverride(&cfg.Ollama.GenerationModel, "OLLAMA_GENERATION_MODEL")
+	envOverride(&cfg.Ingest.WatchDir, "INGEST_WATCH_DIR")
+	envOverride(&cfg.Ingest.Trigger, "INGEST_TRIGGER")
+	envOverride(&cfg.Ingest.PollInterval, "INGEST_POLL_INTERVAL")
 
 	return cfg, nil
 }

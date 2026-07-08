@@ -7,7 +7,7 @@ OAPI_VERSION := v2.4.1
 TEST_COMPOSE := docker compose -f docker/docker-compose-test.yaml
 
 build:
-	go build -o bin/server ./cmd/server
+	go build -o bin/ ./cmd/...
 
 # Self-starting integration tests: brings the test postgres up, runs tests,
 # tears it down (and reports the test exit status). Each test package uses its
