@@ -12,25 +12,41 @@ import (
 	"golang.org/x/net/html"
 )
 
-// extractEpub extracts spine-ordered plain text from an EPUB archive. An EPUB
-// is a zip of XHTML content documents; META-INF/container.xml points at an OPF
-// package file whose <manifest> lists every file and whose <spine> gives the
-// reading order as a list of manifest IDs. This mirrors extractDocx's approach
-// (zip + XML, stdlib only) rather than pulling in a full EPUB library, since
-// parsing container.xml + the OPF manifest/spine is the same complexity class
-// as docx's document.xml. Token-based decoding (like docxXMLText) rather than
-// xml.Unmarshal sidesteps the default-namespace attributes OPF/container.xml
-// declare, which struct-tag matching would otherwise need to account for.
-func extractEpub(content []byte) (string, error) {
+// epubContainerFiles opens content as a zip and, if it carries the mandatory
+// META-INF/container.xml OCF marker, returns its file index. mimetype's Epub
+// magic requires the "mimetype" entry to be the literal first, stored zip
+// entry (the strict spec rule) and misdetects any EPUB that doesn't comply —
+// which in practice includes real, professionally-distributed EPUBs that have
+// been round-tripped through Calibre or similar tools and end up with
+// META-INF/ entries reordered ahead of it. container.xml's presence is the
+// same spec-mandated signal without that ordering sensitivity, so this is used
+// as the actual detection check (see Extract's default case), with the
+// MIME-based route left only as a fast, common-case hint.
+func epubContainerFiles(content []byte) (map[string]*zip.File, bool) {
 	zr, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
 	if err != nil {
-		return "", fmt.Errorf("epub: %w", err)
+		return nil, false
 	}
 	files := make(map[string]*zip.File, len(zr.File))
 	for _, f := range zr.File {
 		files[f.Name] = f
 	}
+	if _, ok := files["META-INF/container.xml"]; !ok {
+		return nil, false
+	}
+	return files, true
+}
 
+// extractEpubFiles extracts spine-ordered plain text from an already-opened
+// EPUB's file index. META-INF/container.xml points at an OPF package file
+// whose <manifest> lists every file and whose <spine> gives the reading order
+// as a list of manifest IDs. This mirrors extractDocx's approach (zip + XML,
+// stdlib only) rather than pulling in a full EPUB library, since parsing
+// container.xml + the OPF manifest/spine is the same complexity class as
+// docx's document.xml. Token-based decoding (like docxXMLText) rather than
+// xml.Unmarshal sidesteps the default-namespace attributes OPF/container.xml
+// declare, which struct-tag matching would otherwise need to account for.
+func extractEpubFiles(files map[string]*zip.File) (string, error) {
 	opfPath, err := epubOPFPath(files)
 	if err != nil {
 		return "", err
