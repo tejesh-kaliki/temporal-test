@@ -2,7 +2,9 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -26,6 +28,13 @@ type TemporalConfig struct {
 	Namespace string `yaml:"namespace"`
 	// TaskQueue that the worker listens on and clients target.
 	TaskQueue string `yaml:"task_queue"`
+	// WorkerConcurrency caps how many activities the worker executes at once
+	// (worker.Options.MaxConcurrentActivityExecutionSize). Every EmbedAndUpsert
+	// activity hits the same local Ollama instance; without a cap, a bulk drop
+	// of many documents starts them all in parallel and the resulting
+	// contention makes individual embed calls slow enough to blow past their
+	// activity timeout instead of completing steadily.
+	WorkerConcurrency int `yaml:"worker_concurrency"`
 }
 
 // QdrantConfig addresses the Qdrant vector DB over its REST API.
@@ -88,6 +97,23 @@ func envOverride(dst *string, key string) {
 	}
 }
 
+// envOverrideInt is envOverride's int counterpart. Unlike a string, not every
+// value is valid, so a malformed override returns an error instead of being
+// silently ignored — an env var is a boundary this project's conventions say
+// should be validated, and failing fast beats surprising you with the default.
+func envOverrideInt(dst *int, key string) error {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	*dst = n
+	return nil
+}
+
 // Load reads the YAML at path, then applies env overrides for anything that is
 // commonly injected by the deployment environment.
 func Load(path string) (*Config, error) {
@@ -96,9 +122,10 @@ func Load(path string) (*Config, error) {
 		Observability: ObservabilityConfig{ServiceName: "backend"},
 		Token:         TokenConfig{ExpiryHours: 1, RefreshExpiryHours: 720},
 		Temporal: TemporalConfig{
-			HostPort:  "localhost:7233",
-			Namespace: "default",
-			TaskQueue: "ingest",
+			HostPort:          "localhost:7233",
+			Namespace:         "default",
+			TaskQueue:         "ingest",
+			WorkerConcurrency: 8,
 		},
 		Qdrant: QdrantConfig{
 			URL:        "http://localhost:6333",
@@ -130,6 +157,9 @@ func Load(path string) (*Config, error) {
 	envOverride(&cfg.Temporal.HostPort, "TEMPORAL_HOSTPORT")
 	envOverride(&cfg.Temporal.Namespace, "TEMPORAL_NAMESPACE")
 	envOverride(&cfg.Temporal.TaskQueue, "TEMPORAL_TASK_QUEUE")
+	if err := envOverrideInt(&cfg.Temporal.WorkerConcurrency, "TEMPORAL_WORKER_CONCURRENCY"); err != nil {
+		return nil, err
+	}
 	envOverride(&cfg.Qdrant.URL, "QDRANT_URL")
 	envOverride(&cfg.Qdrant.Collection, "QDRANT_COLLECTION")
 	envOverride(&cfg.Ollama.URL, "OLLAMA_URL")
