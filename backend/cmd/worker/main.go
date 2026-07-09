@@ -62,7 +62,19 @@ func main() {
 		Store:  ingest.NewStore(pool),
 	}
 
-	w := worker.New(c, cfg.Temporal.TaskQueue, worker.Options{})
+	// MaxConcurrentActivityExecutionSize bounds how many activities run at
+	// once. EmbedAndUpsert is the one that matters here: every instance calls
+	// the same local Ollama process, so with no cap a bulk drop of many
+	// documents (e.g. dropping a whole book series into the inbox at once)
+	// starts all of their embedding activities in parallel, and the resulting
+	// contention slows individual embed calls enough to blow past their
+	// activity timeout instead of completing steadily. Workflow task
+	// concurrency isn't capped alongside it: workflow tasks here are just
+	// orchestration (ExecuteActivity calls) and never touch Ollama, so they
+	// aren't part of this contention.
+	w := worker.New(c, cfg.Temporal.TaskQueue, worker.Options{
+		MaxConcurrentActivityExecutionSize: cfg.Temporal.WorkerConcurrency,
+	})
 	w.RegisterWorkflow(ingest.SyncCatalogWorkflow)
 	w.RegisterWorkflow(ingest.IngestDocumentWorkflow)
 	w.RegisterWorkflow(ingest.PurgeDocumentWorkflow)
