@@ -77,6 +77,26 @@ and parallel-safe. Graduate only if you hit real pain:
   (sqlc accepts any `DBTX`, including `pgx.Tx`) into your services. This couples
   service construction to the test strategy, so prefer it only where it pays off.
 
+## Fitness checks
+
+Repo-wide static checks (cyclomatic complexity, file-length limits, ...) live
+in `fitness_checks/` at the repo root and run in CI on every push/PR. Run them
+locally with:
+
+```sh
+cd backend && make fitness       # or: bash fitness_checks/run_all.sh
+```
+
+Each check script that needs an external tool (e.g. `gocyclo`) pins its own
+version and invokes it via `go run <pkg>@<version>` — the same convention
+`make generate`'s `sqlc`/`oapi` targets use. There is deliberately no separate
+"install dev tools" step: the first run fetches the pinned version into the Go
+module cache, every later run (local or CI) reuses it. If you add a check that
+shells out to a tool, follow this pattern rather than checking `command -v` and
+skipping when it's missing — a check that silently no-ops when its tool isn't
+installed only catches issues in whichever environment happens to have that
+tool, silently doing nothing everywhere else.
+
 ## Observability
 
 OpenTelemetry tracing is wired in: `otelgin` traces HTTP requests and `otelpgx`
