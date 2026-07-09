@@ -2,7 +2,7 @@
 SQLC_VERSION := v1.27.0
 OAPI_VERSION := v2.4.1
 
-.PHONY: build test test-up test-down generate sqlc oapi
+.PHONY: build test test-up test-down generate sqlc oapi fitness
 
 TEST_COMPOSE := docker compose -f docker/docker-compose-test.yaml
 
@@ -31,3 +31,9 @@ sqlc:
 # files). Add a domain by dropping in its codegen.yaml + generate.go.
 oapi:
 	go generate ./...
+
+# Repo-wide static checks (complexity ceilings, file-length limits, ...). Each
+# check script pins its own tool versions the same way sqlc/oapi do above (`go
+# run <pkg>@<version>`), so there is nothing to install first.
+fitness:
+	bash ../fitness_checks/run_all.sh

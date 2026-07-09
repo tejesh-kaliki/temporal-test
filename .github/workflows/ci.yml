@@ -53,6 +53,5 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-      - run: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
       - name: Run fitness checks
         run: bash fitness_checks/run_all.sh

@@ -33,4 +33,10 @@ The API enables CORS for browser clients. In development (`APP_ENV` unset or not
 `production`) it reflects any `Origin`, so the frontend works with no setup. In
 production set `CORS_ALLOWED_ORIGINS` to a comma-separated allowlist.
 
+## Fitness checks
+
+`cd backend && make fitness` runs the repo-wide static checks (also enforced
+in CI). Tool versions are pinned per-check via `go run`, so nothing needs
+installing first — see `TEMPLATE_NOTES.md` for details.
+
 See `TEMPLATE_NOTES.md` for how to add a domain and remove the example.
