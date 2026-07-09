@@ -62,6 +62,19 @@ func Extract(content []byte) (ExtractResult, error) {
 		return ExtractResult{Text: text, Format: "docx", Supported: true}, nil
 
 	default:
+		// mimetype flags well-formed EPUBs as "application/epub+zip", but its
+		// check requires the "mimetype" entry to be the literal first zip
+		// entry (see epubContainerFiles) and misses EPUBs that don't comply —
+		// which real-world files, e.g. ones round-tripped through Calibre,
+		// often don't. So EPUB detection doesn't gate on base here at all: any
+		// zip carrying the OCF META-INF/container.xml marker is treated as one.
+		if files, ok := epubContainerFiles(content); ok {
+			text, err := extractEpubFiles(files)
+			if err != nil {
+				return ExtractResult{}, fmt.Errorf("extract epub: %w", err)
+			}
+			return ExtractResult{Text: text, Format: "epub", Supported: true}, nil
+		}
 		return ExtractResult{Format: base, Supported: false}, nil
 	}
 }
