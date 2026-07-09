@@ -145,23 +145,12 @@ func epubReadOPF(files map[string]*zip.File, opfPath string) (manifest map[strin
 		}
 		switch se.Name.Local {
 		case "item":
-			var id, href string
-			for _, attr := range se.Attr {
-				switch attr.Name.Local {
-				case "id":
-					id = attr.Value
-				case "href":
-					href = attr.Value
-				}
-			}
-			if id != "" && href != "" {
+			if id, href, ok := epubManifestItemAttrs(se); ok {
 				manifest[id] = href
 			}
 		case "itemref":
-			for _, attr := range se.Attr {
-				if attr.Name.Local == "idref" {
-					spine = append(spine, attr.Value)
-				}
+			if idref, ok := epubItemrefAttr(se); ok {
+				spine = append(spine, idref)
 			}
 		}
 	}
@@ -169,6 +158,30 @@ func epubReadOPF(files map[string]*zip.File, opfPath string) (manifest map[strin
 		return nil, nil, fmt.Errorf("epub: no itemref entries in spine")
 	}
 	return manifest, spine, nil
+}
+
+// epubManifestItemAttrs pulls the id/href pair off a manifest <item> element.
+// ok is false if either attribute is missing.
+func epubManifestItemAttrs(se xml.StartElement) (id, href string, ok bool) {
+	for _, attr := range se.Attr {
+		switch attr.Name.Local {
+		case "id":
+			id = attr.Value
+		case "href":
+			href = attr.Value
+		}
+	}
+	return id, href, id != "" && href != ""
+}
+
+// epubItemrefAttr pulls the idref off a spine <itemref> element.
+func epubItemrefAttr(se xml.StartElement) (idref string, ok bool) {
+	for _, attr := range se.Attr {
+		if attr.Name.Local == "idref" {
+			return attr.Value, true
+		}
+	}
+	return "", false
 }
 
 // blockBreakTags are HTML elements whose boundaries become a line break in the
@@ -191,7 +204,8 @@ func epubDocText(f *zip.File) (string, error) {
 	var buf strings.Builder
 	var skipDepth int
 	for {
-		switch tok.Next() {
+		tt := tok.Next()
+		switch tt {
 		case html.ErrorToken:
 			if err := tok.Err(); err != io.EOF && err != nil {
 				return "", err
@@ -203,35 +217,31 @@ func epubDocText(f *zip.File) (string, error) {
 				buf.Write(tok.Text())
 			}
 
+		case html.StartTagToken, html.EndTagToken, html.SelfClosingTagToken:
+			name, _ := tok.TagName()
+			epubApplyTag(tt, string(name), &skipDepth, &buf)
+		}
+	}
+}
+
+// epubApplyTag applies one start/end/self-closing tag's effect on the
+// extraction state: <script>/<style> content is skipped entirely (tracked via
+// skipDepth, since these can't nest but a stray unmatched end tag shouldn't
+// underflow it), and the boundary of a block-level element becomes a line
+// break so words from adjacent elements don't run together.
+func epubApplyTag(tt html.TokenType, tag string, skipDepth *int, buf *strings.Builder) {
+	if tag == "script" || tag == "style" {
+		switch tt {
 		case html.StartTagToken:
-			name, _ := tok.TagName()
-			tag := string(name)
-			if tag == "script" || tag == "style" {
-				skipDepth++
-				continue
-			}
-			if blockBreakTags[tag] {
-				buf.WriteByte('\n')
-			}
-
-		case html.SelfClosingTagToken:
-			name, _ := tok.TagName()
-			if blockBreakTags[string(name)] {
-				buf.WriteByte('\n')
-			}
-
+			*skipDepth++
 		case html.EndTagToken:
-			name, _ := tok.TagName()
-			tag := string(name)
-			if tag == "script" || tag == "style" {
-				if skipDepth > 0 {
-					skipDepth--
-				}
-				continue
-			}
-			if blockBreakTags[tag] {
-				buf.WriteByte('\n')
+			if *skipDepth > 0 {
+				*skipDepth--
 			}
 		}
+		return
+	}
+	if blockBreakTags[tag] {
+		buf.WriteByte('\n')
 	}
 }
